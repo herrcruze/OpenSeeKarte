@@ -141,6 +141,23 @@
   .seg button { font: inherit; font-size: .9rem; padding: 9px 14px; border: 0; background: transparent; color: var(--sheet-ink); cursor: pointer; }
   .seg button[aria-pressed="true"] { background: var(--signal); color: var(--signal-ink); font-weight: 600; }
   .close { position: absolute; right: 14px; top: 12px; }
+  .sheet label.opt { display: flex; margin: 0; font-size: inherit; color: inherit; gap: 12px; align-items: flex-start; padding: 10px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .sheet label.opt[hidden] { display: none; }
+  .opt input { width: 22px; height: 22px; margin: 2px 0 0; accent-color: var(--signal); flex: none; }
+  .opt span { display: block; font-weight: 600; font-size: .98rem; color: var(--sheet-ink); }
+  .opt small { display: block; color: var(--sheet-muted); font-size: .84rem; line-height: 1.4; margin-top: 2px; }
+  .slider { display: flex; align-items: center; gap: 10px; padding: 0 0 10px 34px; font-size: .85rem; color: var(--sheet-muted); }
+  .slider input { flex: 1; accent-color: var(--signal); }
+  .toast { position: absolute; z-index: 1001; left: 50%; transform: translateX(-50%); top: calc(12px + env(safe-area-inset-top, 0px));
+    background: var(--panel); color: var(--ink-on-panel); padding: 8px 14px; border-radius: 10px; font-size: .85rem;
+    box-shadow: 0 2px 6px rgba(0,0,0,.35); display: none; max-width: 60vw; text-align: center; }
+  .toast.show { display: block; }
+  .hz { width: 26px; height: 26px; }
+  .hz svg { width: 26px; height: 26px; overflow: visible; }
+  .hz b { position: absolute; left: 24px; top: 4px; font: 700 11px/1 system-ui, sans-serif; color: #A3166F; background: rgba(255,255,255,.85); padding: 1px 3px; border-radius: 3px; white-space: nowrap; }
+  .grid-label { font: 600 11px/1 system-ui, sans-serif; color: #1D4E7A; background: rgba(255,255,255,.8); padding: 2px 4px; border-radius: 3px; white-space: nowrap; width: auto !important; height: auto !important; }
+  .leaflet-popup-content { font-size: .9rem; line-height: 1.45; margin: 12px 14px; }
+  .leaflet-popup-content h4 { margin: 0 0 4px; font-size: 1rem; }
 </style>
 </head>
 <body>
@@ -153,6 +170,9 @@
     <button class="fab" id="btnTrack" aria-pressed="false" aria-label="Track aufzeichnen" title="Track aufzeichnen">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 19c3-1 3-6 7-6s3-6 9-8"/><circle cx="20" cy="5" r="2" fill="currentColor"/></svg>
     </button>
+    <button class="fab" id="btnLayers" aria-label="Kartenebenen" title="Kartenebenen">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3 2 8.5 12 14l10-5.5z"/><path d="m2 13 10 5.5L22 13"/><path d="m2 17.5 10 5.5 10-5.5" opacity=".55"/></svg>
+    </button>
     <button class="fab" id="btnNight" aria-pressed="false" aria-label="Nachtmodus" title="Nachtmodus">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg>
     </button>
@@ -160,6 +180,8 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
     </button>
   </div>
+
+  <div class="toast" id="toast" role="status"></div>
 
   <div class="instruments">
     <div class="gauge"><small>Fahrt (SOG)</small><b id="sog">–<span>kn</span></b></div>
@@ -169,6 +191,23 @@
   </div>
 
   <div class="sheet-backdrop" id="backdrop"></div>
+  <section class="sheet" id="layerSheet" aria-label="Kartenebenen" aria-hidden="true">
+    <button class="btn close" id="btnLayersClose">Schließen</button>
+    <h2>Kartenebenen</h2>
+
+    <h3>Grundkarte</h3>
+    <label class="opt"><input type="radio" name="base" value="osm"><div><span>Straßenkarte</span><small>OpenStreetMap mit Häfen, Stegen, Ufern und Ortsnamen.</small></div></label>
+    <label class="opt"><input type="radio" name="base" value="sat"><div><span>Luftbild</span><small>Satellitenbild von Esri. In flachem, klarem Wasser sieht man oft helle Sandbänke, Steinfelder und Rinnen. Aufnahmedatum unbekannt.</small></div></label>
+    <label class="opt" id="optCustom" hidden><input type="radio" name="base" value="custom"><div><span>Eigene Karte</span><small id="customInfo">Adresse aus den Einstellungen.</small></div></label>
+
+    <h3>Darüber</h3>
+    <label class="opt"><input type="checkbox" id="lySeamarks"><div><span>Seezeichen</span><small>OpenSeaMap: Tonnen, Baken, Leuchtfeuer, Fahrwasser, Ankerplätze.</small></div></label>
+    <label class="opt"><input type="checkbox" id="lyDepth"><div><span>Wassertiefen (grob)</span><small>EMODnet-Tiefenmodell, Auflösung rund 100 m. Zeigt Becken und Rinnen, aber keine einzelnen Flachstellen oder Steine. Nur zur Planung.</small></div></label>
+    <div class="slider" id="depthSlider"><span>Deckkraft</span><input type="range" id="lyDepthOpacity" min="20" max="100" step="5" aria-label="Deckkraft der Tiefenebene"><span id="lyDepthPct">50 %</span></div>
+    <label class="opt"><input type="checkbox" id="lyHazards"><div><span>Gefahrenstellen</span><small id="hzInfo">Steine, Wracks und Hindernisse aus OpenSeaMap, mit Tiefe, wenn eingetragen. Antippen zeigt Details. Wird ab Zoomstufe 11 für den sichtbaren Bereich geladen und offline gemerkt.</small></div></label>
+    <label class="opt"><input type="checkbox" id="lyGrid"><div><span>Gradnetz</span><small>Breiten- und Längenlinien mit Beschriftung in Grad und Minuten, passt sich dem Zoom an.</small></div></label>
+    <p style="margin-top:14px">Keine dieser Ebenen ersetzt eine amtliche Seekarte. Was hier fehlt, kann trotzdem da sein.</p>
+  </section>
   <section class="sheet" id="sheet" aria-label="Einstellungen" aria-hidden="true">
     <button class="btn close" id="btnClose">Schließen</button>
     <h2>Einstellungen</h2>
@@ -202,15 +241,13 @@
       <button class="btn" id="btnClearTrack">Track löschen</button>
     </div>
 
-    <h3>Karten</h3>
-    <p>Hier tauschst du die Karte aus. Erwartet wird eine Kachel-Adresse mit {z}, {x} und {y}. Leer lassen schaltet die Ebene ab.</p>
-    <label for="baseUrl">Grundkarte</label>
-    <input type="url" id="baseUrl" spellcheck="false" autocomplete="off">
-    <label for="overlayUrl">Seezeichen-Ebene</label>
-    <input type="url" id="overlayUrl" spellcheck="false" autocomplete="off">
+    <h3>Eigene Karte</h3>
+    <p>Du kannst jede Kachelkarte einbinden, deren Adresse {z}, {x} und {y} enthält. Sie erscheint dann unter Kartenebenen als „Eigene Karte“.</p>
+    <label for="customUrl">Kachel-Adresse</label>
+    <input type="url" id="customUrl" spellcheck="false" autocomplete="off" placeholder="https://…/{z}/{x}/{y}.png">
     <div class="row">
-      <button class="btn primary" id="btnSaveMaps">Karten übernehmen</button>
-      <button class="btn" id="btnResetMaps">Standard wiederherstellen</button>
+      <button class="btn primary" id="btnSaveCustom">Eigene Karte verwenden</button>
+      <button class="btn" id="btnClearCustom">Entfernen</button>
     </div>
 
     <h3>Offline-Speicher</h3>
@@ -244,11 +281,11 @@
     set(k, v) { try { localStorage.setItem('seekarte.' + k, JSON.stringify(v)); } catch {} }
   };
 
-  const DEFAULT_MAPS = {
-    base: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-    overlay: 'https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png'
-  };
-  let maps = Object.assign({}, DEFAULT_MAPS, store.get('maps', {}));
+  const DEFAULT_LAYERS = { base: 'osm', seamarks: true, depth: false, depthOpacity: 50, hazards: false, grid: false, customUrl: '' };
+  let ly = Object.assign({}, DEFAULT_LAYERS, store.get('layers', {}));
+  // Übernahme aus der ersten Version
+  const oldMaps = store.get('maps', null);
+  if (oldMaps && oldMaps.base && !/tile\.openstreetmap\.org/.test(oldMaps.base) && !ly.customUrl) { ly.customUrl = oldMaps.base; }
 
   // ---------- Farbschema ----------
   const root = document.documentElement;
@@ -268,25 +305,180 @@
     .setView([last.lat, last.lon], last.z);
   L.control.scale({ imperial: false, position: 'bottomleft' }).addTo(map);
 
-  let baseLayer = null, overlayLayer = null;
-  function buildLayers() {
-    if (baseLayer) map.removeLayer(baseLayer);
-    if (overlayLayer) map.removeLayer(overlayLayer);
-    baseLayer = overlayLayer = null;
-    if (maps.base) {
-      baseLayer = L.tileLayer(maps.base, {
-        maxZoom: 19, maxNativeZoom: 19,
-        attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>-Mitwirkende'
-      }).addTo(map);
+  const BASES = {
+    osm: () => L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19, maxNativeZoom: 19,
+      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>-Mitwirkende' }),
+    sat: () => L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: 19, maxNativeZoom: 18,
+      attribution: 'Luftbild © Esri, Maxar, Earthstar Geographics' }),
+    custom: () => L.tileLayer(ly.customUrl, { maxZoom: 19, attribution: 'Eigene Karte' })
+  };
+  const depthLayer = L.tileLayer('https://tiles.emodnet-bathymetry.eu/2020/baselayer/web_mercator/{z}/{x}/{y}.png', {
+    maxZoom: 19, maxNativeZoom: 10, zIndex: 5,
+    attribution: 'Tiefen © <a href="https://emodnet.ec.europa.eu/en/bathymetry">EMODnet Bathymetry</a>' });
+  const seamarkLayer = L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
+    maxZoom: 19, maxNativeZoom: 18, zIndex: 10,
+    attribution: 'Seezeichen © <a href="https://www.openseamap.org">OpenSeaMap</a>' });
+  const hazardLayer = L.layerGroup();
+  const gridLayer = L.layerGroup();
+  let baseLayer = null, baseKey = '';
+
+  function buildLayers(force) {
+    if (ly.base === 'custom' && !ly.customUrl) ly.base = 'osm';
+    const key = ly.base + '|' + (ly.base === 'custom' ? ly.customUrl : '');
+    if (force || key !== baseKey) {
+      if (baseLayer) map.removeLayer(baseLayer);
+      baseLayer = (BASES[ly.base] || BASES.osm)().addTo(map);
+      baseLayer.setZIndex(1); baseKey = key;
     }
-    if (maps.overlay) {
-      overlayLayer = L.tileLayer(maps.overlay, {
-        maxZoom: 19, maxNativeZoom: 18,
-        attribution: 'Seezeichen © <a href="https://www.openseamap.org">OpenSeaMap</a>'
-      }).addTo(map);
+    const toggle = (layer, on) => on ? layer.addTo(map) : map.removeLayer(layer);
+    depthLayer.setOpacity(ly.depthOpacity / 100);
+    toggle(depthLayer, ly.depth);
+    toggle(seamarkLayer, ly.seamarks);
+    toggle(hazardLayer, ly.hazards);
+    toggle(gridLayer, ly.grid);
+    if (ly.grid) drawGrid();
+    if (ly.hazards) { renderHazards(); loadHazards(); }
+    store.set('layers', ly);
+  }
+
+  // ---------- Hinweis oben ----------
+  let toastTimer = null;
+  function toast(text, ms = 2500) {
+    const t = document.getElementById('toast');
+    t.textContent = text; t.classList.add('show');
+    clearTimeout(toastTimer); if (ms) toastTimer = setTimeout(() => t.classList.remove('show'), ms);
+  }
+
+  // ---------- Gradnetz ----------
+  function fmtGrid(deg, isLat, step) {
+    const h = isLat ? (deg >= 0 ? 'N' : 'S') : (deg >= 0 ? 'E' : 'W');
+    let a = Math.abs(deg), d = Math.floor(a + 1e-9), m = (a - d) * 60;
+    if (m > 59.999) { d += 1; m = 0; }
+    const dec = step < 1 ? (step < 0.2 ? 2 : 1) : 0;
+    return `${d}° ${m.toFixed(dec)}′ ${h}`;
+  }
+  function drawGrid() {
+    gridLayer.clearLayers();
+    if (!ly.grid) return;
+    const b = map.getBounds();
+    const span = Math.min((b.getEast() - b.getWest()) * 60, (b.getNorth() - b.getSouth()) * 60 * 1.6);
+    const steps = [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 30, 60, 120, 300, 600];
+    const step = steps.find(st => span / st <= 7) || 600; // Minuten
+    const line = { color: '#1D4E7A', weight: 1, opacity: .55, interactive: false };
+    const lab = txt => L.divIcon({ className: 'grid-label', html: txt, iconSize: null, iconAnchor: [-4, -4] });
+    for (let m = Math.ceil(b.getSouth() * 60 / step) * step; m <= b.getNorth() * 60; m += step) {
+      const lat = m / 60;
+      gridLayer.addLayer(L.polyline([[lat, b.getWest()], [lat, b.getEast()]], line));
+      gridLayer.addLayer(L.marker([lat, b.getWest()], { icon: lab(fmtGrid(lat, true, step)), interactive: false, keyboard: false }));
+    }
+    for (let m = Math.ceil(b.getWest() * 60 / step) * step; m <= b.getEast() * 60; m += step) {
+      const lon = m / 60;
+      gridLayer.addLayer(L.polyline([[b.getSouth(), lon], [b.getNorth(), lon]], line));
+      gridLayer.addLayer(L.marker([b.getNorth(), lon], { icon: L.divIcon({ className: 'grid-label', html: fmtGrid(lon, false, step), iconSize: null, iconAnchor: [-4, -8] }), interactive: false, keyboard: false }));
     }
   }
-  buildLayers();
+
+  // ---------- Gefahrenstellen (OpenSeaMap über Overpass) ----------
+  let hazards = store.get('hazards', {});      // id -> {lat, lon, t: tags}
+  const loadedBoxes = [];
+  let hzBusy = false;
+  const HZ_TYPES = { rock: 'Stein', wreck: 'Wrack', obstruction: 'Hindernis' };
+  const WATER_LEVEL = {
+    awash: 'wird überspült, liegt etwa auf Wasserhöhe', covers: 'zeitweise bedeckt', dry: 'trockenfallend',
+    always_dry: 'immer über Wasser', submerged: 'unter Wasser', partly_submerged: 'teilweise unter Wasser',
+    floating: 'treibend', below_mwl: 'unter Mittelwasser', above_mwl: 'über Mittelwasser', floods: 'überflutet bei Hochwasser'
+  };
+  const CATEGORY = {
+    dangerous: 'gefährlich', non_dangerous: 'ungefährlich', distributed_remains: 'verstreute Reste',
+    hull_showing: 'Rumpf sichtbar', mast_showing: 'Mast sichtbar', mast_showing_at_low_water: 'Mast bei Niedrigwasser sichtbar',
+    foul_area: 'unreiner Grund', foul_ground: 'unreiner Grund', snag: 'Hängerstelle', stump: 'Pfahlstumpf',
+    boulder: 'Findling', fish_haven: 'Fischschutzanlage', well: 'Bohrloch', ground_tackle: 'Ankergeschirr'
+  };
+  const esc = v => String(v).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  function hzDepth(t) {
+    for (const k in t) if (/value_of_sounding$/.test(k)) { const v = parseFloat(String(t[k]).replace(',', '.')); if (!isNaN(v)) return v; }
+    return null;
+  }
+  function hzPopup(t) {
+    const type = t['seamark:type'];
+    const rows = [];
+    const name = t['seamark:name'] || t.name;
+    const wl = t[`seamark:${type}:water_level`];
+    const cat = t[`seamark:${type}:category`];
+    const d = hzDepth(t);
+    if (wl) rows.push(`Lage: ${esc(WATER_LEVEL[wl] || wl)}`);
+    if (cat) rows.push(`Art: ${esc(cat.split(';').map(c => CATEGORY[c] || c).join(', '))}`);
+    if (d != null) rows.push(`Wassertiefe darüber: ${d.toLocaleString('de-DE')} m`);
+    if (t['seamark:information'] || t.description) rows.push(esc(t['seamark:information'] || t.description));
+    if (!rows.length) rows.push('Keine weiteren Angaben eingetragen.');
+    return `<h4>${esc(HZ_TYPES[type] || 'Gefahrenstelle')}${name ? ': ' + esc(name) : ''}</h4>${rows.join('<br>')}`;
+  }
+  function hzIcon(t) {
+    const type = t['seamark:type'], d = hzDepth(t);
+    const sym = type === 'wreck'
+      ? '<path d="M5 13h16M9 9v8M13 8v10M17 9v8" stroke="#A3166F" stroke-width="2" fill="none"/>'
+      : type === 'rock'
+        ? '<path d="M13 6v14M6 13h14" stroke="#A3166F" stroke-width="2.4"/><circle cx="8.5" cy="8.5" r="1.4" fill="#A3166F"/><circle cx="17.5" cy="8.5" r="1.4" fill="#A3166F"/><circle cx="8.5" cy="17.5" r="1.4" fill="#A3166F"/><circle cx="17.5" cy="17.5" r="1.4" fill="#A3166F"/>'
+        : '<text x="13" y="16.5" text-anchor="middle" font-size="8.5" font-weight="700" fill="#A3166F" font-family="system-ui">Obs</text>';
+    return L.divIcon({
+      className: 'hz', iconSize: [26, 26], iconAnchor: [13, 13],
+      html: `<svg viewBox="0 0 26 26"><circle cx="13" cy="13" r="12" fill="rgba(255,255,255,.55)" stroke="#A3166F" stroke-width="1.6" stroke-dasharray="3 2"/>${sym}</svg>` +
+            (d != null ? `<b>${d.toLocaleString('de-DE')} m</b>` : '')
+    });
+  }
+  function renderHazards() {
+    hazardLayer.clearLayers();
+    for (const id in hazards) {
+      const h = hazards[id];
+      hazardLayer.addLayer(L.marker([h.lat, h.lon], { icon: hzIcon(h.t), keyboard: false }).bindPopup(hzPopup(h.t)));
+    }
+    const n = Object.keys(hazards).length;
+    el('hzInfo').textContent = `Steine, Wracks und Hindernisse aus OpenSeaMap, mit Tiefe, wenn eingetragen. Antippen zeigt Details. Wird ab Zoomstufe 11 für den sichtbaren Bereich geladen und offline gemerkt. Gespeichert: ${n}.`;
+  }
+  async function loadHazards() {
+    if (!ly.hazards || hzBusy) return;
+    if (map.getZoom() < 11) { toast('Für Gefahrenstellen näher heranzoomen'); return; }
+    const b = map.getBounds();
+    if (loadedBoxes.some(x => x.contains(b))) return;
+    if (!navigator.onLine) return;
+    const q = b.pad(0.3);
+    const bbox = [q.getSouth(), q.getWest(), q.getNorth(), q.getEast()].map(v => v.toFixed(4)).join(',');
+    const query = `[out:json][timeout:25];(node["seamark:type"~"^(rock|wreck|obstruction)$"](${bbox});way["seamark:type"~"^(rock|wreck|obstruction)$"](${bbox}););out center tags 2000;`;
+    hzBusy = true; toast('Lade Gefahrenstellen …', 0);
+    try {
+      const res = await fetch('https://overpass-api.de/api/interpreter', { method: 'POST', body: 'data=' + encodeURIComponent(query),
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
+      if (!res.ok) throw new Error(res.status);
+      const data = await res.json();
+      let added = 0;
+      for (const e of data.elements || []) {
+        const lat = e.lat ?? e.center?.lat, lon = e.lon ?? e.center?.lon;
+        if (lat == null) continue;
+        const keep = {};
+        for (const k in e.tags) if (k.startsWith('seamark:') || k === 'name' || k === 'description') keep[k] = e.tags[k];
+        if (!hazards[e.type + e.id]) added++;
+        hazards[e.type + e.id] = { lat, lon, t: keep };
+      }
+      loadedBoxes.push(q);
+      // Speicher begrenzen
+      const ids = Object.keys(hazards);
+      if (ids.length > 5000) ids.slice(0, ids.length - 5000).forEach(id => delete hazards[id]);
+      store.set('hazards', hazards);
+      renderHazards();
+      toast(added ? `${added} Gefahrenstellen geladen` : 'Keine neuen Gefahrenstellen in diesem Bereich');
+    } catch (err) {
+      toast('Gefahrenstellen konnten nicht geladen werden. Später erneut versuchen.', 4000);
+    } finally { hzBusy = false; }
+  }
+  let hzTimer = null;
+  map.on('moveend', () => {
+    if (ly.grid) drawGrid();
+    if (ly.hazards) { clearTimeout(hzTimer); hzTimer = setTimeout(loadHazards, 800); }
+  });
+
   map.on('moveend', () => { const c = map.getCenter(); store.set('view', { lat: c.lat, lon: c.lng, z: map.getZoom() }); });
 
   // ---------- Boot ----------
@@ -520,12 +712,38 @@
   function openSheet(open) {
     sheet.classList.toggle('open', open); backdrop.classList.toggle('open', open);
     sheet.setAttribute('aria-hidden', String(!open));
-    if (open) { el('baseUrl').value = maps.base; el('overlayUrl').value = maps.overlay; updateTrackInfo(); updateCacheInfo(); }
+    if (open) { el('customUrl').value = ly.customUrl; updateTrackInfo(); updateCacheInfo(); }
   }
   el('btnSettings').addEventListener('click', () => openSheet(true));
   el('btnClose').addEventListener('click', () => openSheet(false));
-  backdrop.addEventListener('click', () => openSheet(false));
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') openSheet(false); });
+  backdrop.addEventListener('click', () => { openSheet(false); openLayers(false); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') { openSheet(false); openLayers(false); } });
+
+  // ---------- Ebenen-Auswahl ----------
+  const layerSheet = el('layerSheet');
+  function syncLayerUi() {
+    document.querySelectorAll('input[name=base]').forEach(r => r.checked = r.value === ly.base);
+    el('optCustom').hidden = !ly.customUrl;
+    if (ly.customUrl) el('customInfo').textContent = ly.customUrl;
+    el('lySeamarks').checked = ly.seamarks; el('lyDepth').checked = ly.depth;
+    el('lyHazards').checked = ly.hazards; el('lyGrid').checked = ly.grid;
+    el('lyDepthOpacity').value = ly.depthOpacity; el('lyDepthPct').textContent = ly.depthOpacity + ' %';
+    el('depthSlider').style.display = ly.depth ? '' : 'none';
+  }
+  function openLayers(open) {
+    layerSheet.classList.toggle('open', open); backdrop.classList.toggle('open', open);
+    layerSheet.setAttribute('aria-hidden', String(!open));
+    if (open) syncLayerUi();
+  }
+  el('btnLayers').addEventListener('click', () => openLayers(true));
+  el('btnLayersClose').addEventListener('click', () => openLayers(false));
+  document.querySelectorAll('input[name=base]').forEach(r => r.addEventListener('change', () => { ly.base = r.value; buildLayers(); }));
+  [['lySeamarks', 'seamarks'], ['lyDepth', 'depth'], ['lyHazards', 'hazards'], ['lyGrid', 'grid']].forEach(([id, key]) =>
+    el(id).addEventListener('change', e => { ly[key] = e.target.checked; buildLayers(); syncLayerUi(); }));
+  el('lyDepthOpacity').addEventListener('input', e => {
+    ly.depthOpacity = +e.target.value; depthLayer.setOpacity(ly.depthOpacity / 100);
+    el('lyDepthPct').textContent = ly.depthOpacity + ' %'; store.set('layers', ly);
+  });
 
   document.querySelectorAll('[data-theme-set]').forEach(b => b.addEventListener('click', () => applyTheme(b.dataset.themeSet)));
   el('btnNight').addEventListener('click', () => {
@@ -533,16 +751,18 @@
     applyTheme(night ? 'light' : 'dark');
   });
 
-  function validTileUrl(u) { return u === '' || (/^https?:\/\//.test(u) && u.includes('{z}') && u.includes('{x}') && u.includes('{y}')); }
-  el('btnSaveMaps').addEventListener('click', () => {
-    const b = el('baseUrl').value.trim(), o = el('overlayUrl').value.trim();
-    if (!validTileUrl(b) || !validTileUrl(o)) { alert('Die Adresse muss mit http(s):// beginnen und {z}, {x} und {y} enthalten.'); return; }
-    maps = { base: b, overlay: o }; store.set('maps', maps); buildLayers(); openSheet(false);
+  function validTileUrl(u) { return /^https?:\/\//.test(u) && u.includes('{z}') && u.includes('{x}') && u.includes('{y}'); }
+  el('btnSaveCustom').addEventListener('click', () => {
+    const u = el('customUrl').value.trim();
+    if (!validTileUrl(u)) { alert('Die Adresse muss mit http(s):// beginnen und {z}, {x} und {y} enthalten.'); return; }
+    ly.customUrl = u; ly.base = 'custom'; buildLayers(); openSheet(false);
   });
-  el('btnResetMaps').addEventListener('click', () => {
-    maps = Object.assign({}, DEFAULT_MAPS); store.set('maps', maps);
-    el('baseUrl').value = maps.base; el('overlayUrl').value = maps.overlay; buildLayers();
+  el('btnClearCustom').addEventListener('click', () => {
+    ly.customUrl = ''; if (ly.base === 'custom') ly.base = 'osm';
+    el('customUrl').value = ''; buildLayers();
   });
+
+  buildLayers();
 
   // ---------- Offline ----------
   async function updateCacheInfo() {
@@ -561,7 +781,7 @@
   el('btnClearCache').addEventListener('click', async () => {
     if (!confirm('Alle gespeicherten Kartenkacheln löschen? Danach brauchst du Netz, um sie neu zu laden.')) return;
     try { await caches.delete('seekarte-tiles'); } catch {}
-    buildLayers(); updateCacheInfo();
+    buildLayers(true); [depthLayer, seamarkLayer].forEach(l => l.redraw()); updateCacheInfo();
   });
 
   if ('serviceWorker' in navigator && isSecureContext) {

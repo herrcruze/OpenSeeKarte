@@ -1,5 +1,5 @@
 // Seekarte Service Worker: App offline verfügbar machen und Kartenkacheln speichern.
-const APP_CACHE = 'seekarte-app-v1';
+const APP_CACHE = 'seekarte-app-v2';
 const TILE_CACHE = 'seekarte-tiles';
 const APP_FILES = [
   './', 'index.html', 'manifest.webmanifest',
@@ -7,7 +7,7 @@ const APP_FILES = [
   'leaflet/images/layers.png', 'leaflet/images/layers-2x.png',
   'icon-180.png', 'icon-192.png', 'icon-512.png'
 ];
-const TILE_PATTERN = /\/\d+\/\d+\/\d+(@2x)?\.(png|jpe?g|webp)(\?.*)?$/i;
+const TILE_PATTERN = /(\/\d+\/\d+\/\d+(@2x)?\.(png|jpe?g|webp)|\/tile\/\d+\/\d+\/\d+)(\?.*)?$/i;
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(APP_CACHE).then(c => c.addAll(APP_FILES)).then(() => self.skipWaiting()));

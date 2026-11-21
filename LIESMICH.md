@@ -19,9 +19,17 @@ Eine kleine Web-App: GPS-Position, Fahrt und Kurs auf OpenStreetMap mit OpenSeaM
 
 Die App speichert jede Kartenkachel, die du dir einmal angesehen hast. Also zu Hause im WLAN das Fahrtgebiet in den Zoomstufen durchscrollen, die du unterwegs brauchst (z. B. Übersicht, Revier, Hafeneinfahrten). Ein automatischer Download ganzer Gebiete ist bewusst nicht eingebaut, weil die Kartenserver von OpenStreetMap und OpenSeaMap das in ihren Nutzungsregeln nicht wollen.
 
-## Karte austauschen
+## Kartenebenen
 
-Einstellungen → Karten. Dort lassen sich andere Kachel-Adressen eintragen (Format mit `{z}/{x}/{y}`). „Kartenspeicher leeren“ wirft alte Kacheln weg, damit neue geladen werden.
+Über den Ebenen-Knopf rechts (drei gestapelte Flächen):
+
+- Grundkarte: Straßenkarte (OpenStreetMap) oder Luftbild (Esri)
+- Seezeichen (OpenSeaMap)
+- Wassertiefen grob (EMODnet, ca. 100 m Auflösung, nur zur Planung), mit Regler für die Deckkraft
+- Gefahrenstellen: Steine, Wracks, Hindernisse aus OpenSeaMap, ab Zoomstufe 11, werden offline gemerkt
+- Gradnetz in Grad und Minuten
+
+Eine eigene Kachelkarte lässt sich unter Einstellungen → Eigene Karte einbinden. „Kartenspeicher leeren“ wirft alte Kacheln weg, damit neue geladen werden.
 
 ## Gut zu wissen
 
