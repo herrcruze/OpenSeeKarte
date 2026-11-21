@@ -157,6 +157,10 @@
   .hz { width: 26px; height: 26px; }
   .hz svg { width: 26px; height: 26px; overflow: visible; }
   .hz b { position: absolute; left: 24px; top: 4px; font: 700 11px/1 system-ui, sans-serif; color: #A3166F; background: rgba(255,255,255,.85); padding: 1px 3px; border-radius: 3px; white-space: nowrap; }
+  .sounding { width: auto !important; height: auto !important; }
+  .sounding span { display: block; transform: translate(-50%, -50%); font: italic 600 12px/1 system-ui, sans-serif; color: #12355B;
+    background: rgba(255,255,255,.65); padding: 1px 3px; border-radius: 3px; white-space: nowrap; cursor: pointer; }
+  .sounding.est span { color: #5A6B7B; font-weight: 500; }
   .grid-label { font: 600 11px/1 system-ui, sans-serif; color: #1D4E7A; background: rgba(255,255,255,.8); padding: 2px 4px; border-radius: 3px; white-space: nowrap; width: auto !important; height: auto !important; }
   .leaflet-popup-content { font-size: .9rem; line-height: 1.45; margin: 12px 14px; }
   .leaflet-popup-content h4 { margin: 0 0 4px; font-size: 1rem; }
@@ -209,6 +213,7 @@
       <div class="slider"><span>Deckkraft</span><input type="range" id="lyDepthOpacity" min="20" max="100" step="5" aria-label="Deckkraft der Tiefenebene"><span id="lyDepthPct">70 %</span></div>
       <div class="legend"><img src="https://tiles.emodnet-bathymetry.eu/legends/legend_multicolour.png" alt="Farbskala der Wassertiefen in Metern" loading="lazy"></div>
     </div>
+    <label class="opt"><input type="checkbox" id="lyDepthNums"><div><span>Tiefen als Zahlen</span><small id="dnInfo">Wassertiefe in Metern aus dem EMODnet-Tiefenmodell, ab Zoomstufe 13. Angezeigt wird jeweils die flachste Stelle eines Rasterfelds von etwa 115 × 70 m. Kräftige Zahlen beruhen auf einer Vermessung, blasse sind vermutlich geschätzt. Antippen zeigt Mittel- und Höchstwert und die Datenquelle. Einmal geladene Werte bleiben offline gespeichert.</small></div></label>
     <label class="opt"><input type="checkbox" id="lyHazards"><div><span>Gefahrenstellen</span><small id="hzInfo">Steine, Wracks und Hindernisse aus OpenSeaMap, mit Tiefe, wenn eingetragen. Antippen zeigt Details. Wird ab Zoomstufe 11 für den sichtbaren Bereich geladen und offline gemerkt.</small></div></label>
     <label class="opt"><input type="checkbox" id="lyGrid"><div><span>Gradnetz</span><small>Breiten- und Längenlinien mit Beschriftung in Grad und Minuten, passt sich dem Zoom an.</small></div></label>
     <p style="margin-top:14px">Keine dieser Ebenen ersetzt eine amtliche Seekarte. Was hier fehlt, kann trotzdem da sein.</p>
@@ -286,7 +291,7 @@
     set(k, v) { try { localStorage.setItem('seekarte.' + k, JSON.stringify(v)); } catch {} }
   };
 
-  const DEFAULT_LAYERS = { base: 'osm', seamarks: true, depth: false, depthOpacity: 70, hazards: false, grid: false, customUrl: '' };
+  const DEFAULT_LAYERS = { base: 'osm', seamarks: true, depth: false, depthOpacity: 70, hazards: false, grid: false, depthNums: false, customUrl: '' };
   let ly = Object.assign({}, DEFAULT_LAYERS, store.get('layers', {}));
   // Übernahme aus der ersten Version
   const oldMaps = store.get('maps', null);
@@ -327,6 +332,7 @@
     maxZoom: 19, maxNativeZoom: 18, zIndex: 10,
     attribution: 'Seezeichen © <a href="https://www.openseamap.org">OpenSeaMap</a>' });
   const hazardLayer = L.layerGroup();
+  const depthNumLayer = L.layerGroup();
   const gridLayer = L.layerGroup();
   let baseLayer = null, baseKey = '';
 
@@ -344,6 +350,8 @@
     toggle(seamarkLayer, ly.seamarks);
     toggle(hazardLayer, ly.hazards);
     toggle(gridLayer, ly.grid);
+    toggle(depthNumLayer, ly.depthNums);
+    if (ly.depthNums) sampleDepths(); else depthNumLayer.clearLayers();
     if (ly.grid) drawGrid();
     if (ly.hazards) { renderHazards(); loadHazards(); }
     store.set('layers', ly);
@@ -479,10 +487,89 @@
       toast('Gefahrenstellen konnten nicht geladen werden. Später erneut versuchen.', 4000);
     } finally { hzBusy = false; }
   }
-  let hzTimer = null;
+  // ---------- Tiefen als Zahlen (EMODnet REST, Rasterfeld 1/16 Bogenminute) ----------
+  const CELL = 1 / 960;
+  let cells = store.get('depthcells', {});   // key -> [min, avg, max, quelle] oder 0 = kein Wasser/keine Daten
+  let dnQueue = [], dnActive = 0, dnPausedUntil = 0, dnErrors = 0, dnSaveTimer = null;
+  const cellKey = (lat, lon) => Math.floor(lat / CELL) + '_' + Math.floor(lon / CELL);
+  const cellCenter = k => { const [i, j] = k.split('_').map(Number); return [(i + .5) * CELL, (j + .5) * CELL]; };
+  const fmtM = v => v.toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+
+  function dnPopup(c) {
+    const [mn, av, mx, src] = c;
+    return `<h4>Wassertiefe</h4>Flachste Stelle im Feld: <b>${fmtM(mn)} m</b><br>Mittel: ${fmtM(av)} m · Tiefste: ${fmtM(mx)} m<br>` +
+      `Feldgröße etwa 115 × 70 m<br>Quelle: ${src ? esc(src) : 'keine Einzelmessung angegeben, vermutlich interpoliert'}<br>` +
+      `<small>EMODnet-Tiefenmodell, nicht für die Navigation freigegeben.</small>`;
+  }
+  function drawCell(k) {
+    const c = cells[k];
+    if (!c || !Array.isArray(c)) return;
+    const icon = L.divIcon({ className: 'sounding' + (c[3] ? '' : ' est'), html: `<span>${fmtM(c[0])}</span>`, iconSize: null });
+    depthNumLayer.addLayer(L.marker(cellCenter(k), { icon, keyboard: false }).bindPopup(dnPopup(c)));
+  }
+  function saveCellsSoon() {
+    clearTimeout(dnSaveTimer);
+    dnSaveTimer = setTimeout(() => {
+      const keys = Object.keys(cells);
+      if (keys.length > 40000) keys.slice(0, keys.length - 40000).forEach(k => delete cells[k]);
+      store.set('depthcells', cells);
+    }, 2000);
+  }
+  async function fetchCell(k) {
+    const [lat, lon] = cellCenter(k);
+    const url = `https://rest.emodnet-bathymetry.eu/depth_sample?geom=${encodeURIComponent(`POINT(${lon.toFixed(6)} ${lat.toFixed(6)})`)}`;
+    const res = await fetch(url);
+    if (res.status === 429) { const e = new Error('rate'); e.rate = true; throw e; }
+    if (!res.ok) { cells[k] = 0; return; }
+    let d = null; try { d = await res.json(); } catch {}
+    const num = v => (typeof v === 'number' && isFinite(v)) ? v : null;
+    const mn = num(d && d.min), av = num(d && d.avg), mx = num(d && d.max);
+    if (av == null || av <= 0) { cells[k] = 0; return; }   // Land oder keine Daten
+    const ref = d.reference || {};
+    const DEV = { 'single-beam echosounders': 'Einzelstrahl-Echolot', 'multi-beam echosounders': 'Fächerecholot',
+      'lidar': 'Laser (LiDAR)', 'satellite': 'Satellitenmessung' };
+    const src = ref.devices ? String(ref.devices).split(/,\s*/).map(x => DEV[x.toLowerCase()] || x).join(', ') : (ref.type ? 'Vermessung' : '');
+    cells[k] = [Math.max(0, mn ?? av), av, mx ?? av, src];
+  }
+  function pumpDepths() {
+    while (dnActive < 2 && dnQueue.length && Date.now() >= dnPausedUntil) {
+      const k = dnQueue.shift();
+      if (k in cells) { drawCell(k); continue; }
+      dnActive++;
+      fetchCell(k).then(() => { drawCell(k); saveCellsSoon(); dnErrors = 0; })
+        .catch(err => {
+          if (err.rate) { dnPausedUntil = Date.now() + 8000; dnQueue.unshift(k); toast('Tiefenserver bremst, geht gleich weiter …'); }
+          else if (++dnErrors === 3) { dnQueue = []; toast('Tiefenwerte konnten nicht geladen werden. Internet prüfen oder später erneut versuchen.', 5000); }
+        })
+        .finally(() => { dnActive--; setTimeout(pumpDepths, 120); });
+    }
+    if (dnQueue.length && Date.now() < dnPausedUntil) setTimeout(pumpDepths, dnPausedUntil - Date.now() + 50);
+  }
+  function sampleDepths() {
+    depthNumLayer.clearLayers(); dnQueue = [];
+    if (!ly.depthNums) return;
+    if (map.getZoom() < 13) { toast('Für Tiefenzahlen näher heranzoomen (ab Zoomstufe 13)'); return; }
+    const size = map.getSize(), step = 70, seen = new Set(), todo = [];
+    for (let y = step / 2; y < size.y; y += step) {
+      for (let x = step / 2; x < size.x; x += step) {
+        const ll = map.containerPointToLatLng([x, y]);
+        const k = cellKey(ll.lat, ll.lng);
+        if (seen.has(k)) continue; seen.add(k);
+        if (k in cells) drawCell(k); else todo.push(k);
+      }
+    }
+    // von der Mitte nach außen laden
+    const c = map.getCenter();
+    todo.sort((a, b) => map.distance(cellCenter(a), c) - map.distance(cellCenter(b), c));
+    dnQueue = todo.slice(0, 120);
+    if (dnQueue.length && navigator.onLine) pumpDepths();
+  }
+
+  let hzTimer = null, dnTimer = null;
   map.on('moveend', () => {
     if (ly.grid) drawGrid();
     if (ly.hazards) { clearTimeout(hzTimer); hzTimer = setTimeout(loadHazards, 800); }
+    if (ly.depthNums) { clearTimeout(dnTimer); dnTimer = setTimeout(sampleDepths, 500); }
   });
 
   map.on('moveend', () => { const c = map.getCenter(); store.set('view', { lat: c.lat, lon: c.lng, z: map.getZoom() }); });
@@ -732,7 +819,7 @@
     el('optCustom').hidden = !ly.customUrl;
     if (ly.customUrl) el('customInfo').textContent = ly.customUrl;
     el('lySeamarks').checked = ly.seamarks; el('lyDepth').checked = ly.depth;
-    el('lyHazards').checked = ly.hazards; el('lyGrid').checked = ly.grid;
+    el('lyHazards').checked = ly.hazards; el('lyGrid').checked = ly.grid; el('lyDepthNums').checked = ly.depthNums;
     el('lyDepthOpacity').value = ly.depthOpacity; el('lyDepthPct').textContent = ly.depthOpacity + ' %';
     el('depthSlider').style.display = ly.depth ? '' : 'none';
   }
@@ -744,7 +831,7 @@
   el('btnLayers').addEventListener('click', () => openLayers(true));
   el('btnLayersClose').addEventListener('click', () => openLayers(false));
   document.querySelectorAll('input[name=base]').forEach(r => r.addEventListener('change', () => { ly.base = r.value; buildLayers(); }));
-  [['lySeamarks', 'seamarks'], ['lyDepth', 'depth'], ['lyHazards', 'hazards'], ['lyGrid', 'grid']].forEach(([id, key]) =>
+  [['lySeamarks', 'seamarks'], ['lyDepth', 'depth'], ['lyDepthNums', 'depthNums'], ['lyHazards', 'hazards'], ['lyGrid', 'grid']].forEach(([id, key]) =>
     el(id).addEventListener('change', e => { ly[key] = e.target.checked; buildLayers(); syncLayerUi(); }));
   el('lyDepthOpacity').addEventListener('input', e => {
     ly.depthOpacity = +e.target.value; depthLayer.setOpacity(ly.depthOpacity / 100);
