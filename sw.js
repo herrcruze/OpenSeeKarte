@@ -1,5 +1,5 @@
 // Seekarte Service Worker: App offline verfügbar machen und Kartenkacheln speichern.
-const APP_CACHE = 'seekarte-app-v2';
+const APP_CACHE = 'seekarte-app-v3';
 const TILE_CACHE = 'seekarte-tiles';
 const APP_FILES = [
   './', 'index.html', 'manifest.webmanifest',
@@ -43,7 +43,7 @@ self.addEventListener('fetch', e => {
   // App-Dateien: erst Netz (damit Updates ankommen), ohne Netz aus dem Speicher
   if (url.origin === location.origin) {
     e.respondWith(
-      fetch(req).then(res => {
+      fetch(req, { cache: 'no-cache' }).then(res => {
         if (res.ok) caches.open(APP_CACHE).then(c => c.put(req, res.clone()));
         return res;
       }).catch(() => caches.match(req, { ignoreSearch: true }).then(r => r || caches.match('index.html')))

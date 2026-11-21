@@ -148,6 +148,8 @@
   .opt small { display: block; color: var(--sheet-muted); font-size: .84rem; line-height: 1.4; margin-top: 2px; }
   .slider { display: flex; align-items: center; gap: 10px; padding: 0 0 10px 34px; font-size: .85rem; color: var(--sheet-muted); }
   .slider input { flex: 1; accent-color: var(--signal); }
+  .legend { padding: 0 0 12px 34px; }
+  .legend img { max-width: 160px; height: auto; border-radius: 6px; background: #fff; }
   .toast { position: absolute; z-index: 1001; left: 50%; transform: translateX(-50%); top: calc(12px + env(safe-area-inset-top, 0px));
     background: var(--panel); color: var(--ink-on-panel); padding: 8px 14px; border-radius: 10px; font-size: .85rem;
     box-shadow: 0 2px 6px rgba(0,0,0,.35); display: none; max-width: 60vw; text-align: center; }
@@ -202,8 +204,11 @@
 
     <h3>Darüber</h3>
     <label class="opt"><input type="checkbox" id="lySeamarks"><div><span>Seezeichen</span><small>OpenSeaMap: Tonnen, Baken, Leuchtfeuer, Fahrwasser, Ankerplätze.</small></div></label>
-    <label class="opt"><input type="checkbox" id="lyDepth"><div><span>Wassertiefen (grob)</span><small>EMODnet-Tiefenmodell, Auflösung rund 100 m. Zeigt Becken und Rinnen, aber keine einzelnen Flachstellen oder Steine. Nur zur Planung.</small></div></label>
-    <div class="slider" id="depthSlider"><span>Deckkraft</span><input type="range" id="lyDepthOpacity" min="20" max="100" step="5" aria-label="Deckkraft der Tiefenebene"><span id="lyDepthPct">50 %</span></div>
+    <label class="opt"><input type="checkbox" id="lyDepth"><div><span>Wassertiefen (grob)</span><small>EMODnet-Tiefenmodell 2024 als Farbfläche, Auflösung rund 125 m. Zeigt Becken und Rinnen, aber keine einzelnen Flachstellen oder Steine. Nur zur Planung.</small></div></label>
+    <div id="depthSlider">
+      <div class="slider"><span>Deckkraft</span><input type="range" id="lyDepthOpacity" min="20" max="100" step="5" aria-label="Deckkraft der Tiefenebene"><span id="lyDepthPct">70 %</span></div>
+      <div class="legend"><img src="https://tiles.emodnet-bathymetry.eu/legends/legend_multicolour.png" alt="Farbskala der Wassertiefen in Metern" loading="lazy"></div>
+    </div>
     <label class="opt"><input type="checkbox" id="lyHazards"><div><span>Gefahrenstellen</span><small id="hzInfo">Steine, Wracks und Hindernisse aus OpenSeaMap, mit Tiefe, wenn eingetragen. Antippen zeigt Details. Wird ab Zoomstufe 11 für den sichtbaren Bereich geladen und offline gemerkt.</small></div></label>
     <label class="opt"><input type="checkbox" id="lyGrid"><div><span>Gradnetz</span><small>Breiten- und Längenlinien mit Beschriftung in Grad und Minuten, passt sich dem Zoom an.</small></div></label>
     <p style="margin-top:14px">Keine dieser Ebenen ersetzt eine amtliche Seekarte. Was hier fehlt, kann trotzdem da sein.</p>
@@ -281,7 +286,7 @@
     set(k, v) { try { localStorage.setItem('seekarte.' + k, JSON.stringify(v)); } catch {} }
   };
 
-  const DEFAULT_LAYERS = { base: 'osm', seamarks: true, depth: false, depthOpacity: 50, hazards: false, grid: false, customUrl: '' };
+  const DEFAULT_LAYERS = { base: 'osm', seamarks: true, depth: false, depthOpacity: 70, hazards: false, grid: false, customUrl: '' };
   let ly = Object.assign({}, DEFAULT_LAYERS, store.get('layers', {}));
   // Übernahme aus der ersten Version
   const oldMaps = store.get('maps', null);
@@ -314,8 +319,9 @@
       attribution: 'Luftbild © Esri, Maxar, Earthstar Geographics' }),
     custom: () => L.tileLayer(ly.customUrl, { maxZoom: 19, attribution: 'Eigene Karte' })
   };
-  const depthLayer = L.tileLayer('https://tiles.emodnet-bathymetry.eu/2020/baselayer/web_mercator/{z}/{x}/{y}.png', {
-    maxZoom: 19, maxNativeZoom: 10, zIndex: 5,
+  // DTM 2024 (neueste Ausgabe), nur Wasserflächen, Land bleibt durchsichtig
+  const depthLayer = L.tileLayer('https://tiles.emodnet-bathymetry.eu/latest/mean_multicolour/web_mercator/{z}/{x}/{y}.png', {
+    maxZoom: 19, maxNativeZoom: 13, zIndex: 5,
     attribution: 'Tiefen © <a href="https://emodnet.ec.europa.eu/en/bathymetry">EMODnet Bathymetry</a>' });
   const seamarkLayer = L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
     maxZoom: 19, maxNativeZoom: 18, zIndex: 10,
