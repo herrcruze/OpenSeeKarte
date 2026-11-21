@@ -180,6 +180,21 @@
       <button data-theme-set="dark">Nacht</button>
     </div>
 
+    <h3>Position ohne GPS</h3>
+    <p>Am PC oder ohne Empfang: Rechtsklick auf die Karte setzt deine Position dorthin, am Handy lange auf die Karte drücken. Oder Koordinaten eingeben, z. B. 54.3155, 13.0935.</p>
+    <label for="manualPos">Koordinaten (Breite, Länge)</label>
+    <input type="text" id="manualPos" inputmode="decimal" spellcheck="false" autocomplete="off" placeholder="54.3155, 13.0935">
+    <div class="row">
+      <button class="btn primary" id="btnSetPos">Position setzen</button>
+      <button class="btn" id="btnUseGps">Echtes GPS verwenden</button>
+    </div>
+    <label for="simCourse">Testfahrt: Kurs in Grad und Fahrt in Knoten</label>
+    <div class="row" style="margin-top:0">
+      <input type="text" id="simCourse" inputmode="numeric" value="045" style="width:6em" aria-label="Kurs in Grad">
+      <input type="text" id="simSpeed" inputmode="decimal" value="5" style="width:6em" aria-label="Fahrt in Knoten">
+      <button class="btn" id="btnSim">Testfahrt starten</button>
+    </div>
+
     <h3>Track</h3>
     <p id="trackInfo">Kein Track aufgezeichnet.</p>
     <div class="row">
@@ -208,7 +223,19 @@
 
 <script src="leaflet/leaflet.js"></script>
 <script>
+  // Falls der Ordner "leaflet" nicht mit hochgeladen wurde: aus dem Netz nachladen
+  if (!window.L) {
+    document.write('<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">' +
+                   '<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"><\/script>');
+  }
+</script>
+<script>
 (() => {
+  if (!window.L) {
+    document.getElementById('status').textContent = 'Kartenbibliothek fehlt: Ordner „leaflet“ hochladen oder Internetverbindung prüfen.';
+    document.getElementById('status').classList.add('warn');
+    return;
+  }
   'use strict';
 
   // ---------- Speicher ----------
@@ -287,6 +314,7 @@
   }
 
   // ---------- GPS ----------
+  let source = 'gps'; // 'gps' | 'manual' | 'sim'
   let follow = true, lastFix = null, lastCogPoint = null, cog = null, staleTimer = null;
   const KN = 1.943844;
 
@@ -315,7 +343,9 @@
     el('sog').innerHTML = (sogKn == null ? '–' : sogKn.toFixed(1)) + '<span>kn</span>';
     el('cog').innerHTML = (cog == null || (sogKn != null && sogKn < 0.3) ? '–' : String(Math.round(cog) % 360).padStart(3, '0')) + '<span>°</span>';
     el('pos').innerHTML = ddm(lat, 'N', 'S') + '<br>' + ddm(lon, 'E', 'W');
-    setStatus(`GPS ok · Genauigkeit ±${Math.round(accuracy)} m · ${new Date(now).toLocaleTimeString('de-DE')}`, accuracy > 50);
+    if (source === 'gps') setStatus(`GPS ok · Genauigkeit ±${Math.round(accuracy)} m · ${new Date(now).toLocaleTimeString('de-DE')}`, accuracy > 50);
+    else if (source === 'manual') setStatus('Position von Hand gesetzt · kein GPS', false);
+    else setStatus(`Testfahrt · ${Math.round(heading)}° mit ${(speed * KN).toFixed(1)} kn`, false);
 
     if (!boat) {
       accCircle = L.circle(ll, { radius: accuracy, weight: 1, color: '#F26B1D', fillOpacity: .08, interactive: false }).addTo(map);
@@ -341,7 +371,7 @@
     if (recording) addTrackPoint(lat, lon, now);
 
     clearTimeout(staleTimer);
-    staleTimer = setTimeout(() => {
+    if (source === 'gps') staleTimer = setTimeout(() => {
       setStatus('Kein GPS-Signal seit über 30 Sekunden', true);
       boat && boat.getElement() && boat.getElement().classList.add('stale');
     }, 30000);
@@ -349,8 +379,8 @@
 
   function onError(e) {
     const msg = {
-      1: 'Standortzugriff verweigert. In den Browser-Einstellungen für diese Seite erlauben.',
-      2: 'Position nicht verfügbar. Freie Sicht zum Himmel hilft.',
+      1: 'Standortzugriff verweigert. Erlauben oder per Rechtsklick bzw. langem Drücken auf die Karte die Position setzen.',
+      2: 'Kein GPS verfügbar. Rechtsklick bzw. langes Drücken auf die Karte setzt die Position von Hand.',
       3: 'GPS antwortet nicht, versuche es weiter …'
     }[e.code] || 'GPS-Fehler: ' + e.message;
     setStatus(msg, true);
@@ -358,7 +388,59 @@
 
   if (!('geolocation' in navigator)) setStatus('Dieser Browser kann kein GPS nutzen.', true);
   else if (!isSecureContext) setStatus('GPS braucht eine https-Adresse. Siehe Anleitung.', true);
-  else navigator.geolocation.watchPosition(onPosition, onError, { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 });
+  else navigator.geolocation.watchPosition(p => { if (source === 'gps') onPosition(p); }, e => { if (source === 'gps') onError(e); },
+    { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 });
+
+  // ---------- Position ohne GPS ----------
+  let simTimer = null;
+  function fakeFix(lat, lon, speedMs, headingDeg, acc) {
+    onPosition({ coords: { latitude: lat, longitude: lon, accuracy: acc, speed: speedMs, heading: headingDeg }, timestamp: Date.now() });
+  }
+  function stopSim() {
+    clearInterval(simTimer); simTimer = null;
+    el('btnSim').textContent = 'Testfahrt starten';
+  }
+  function setManual(lat, lon) {
+    stopSim(); source = 'manual';
+    lastFix = null; lastCogPoint = null; cog = null;
+    fakeFix(lat, lon, 0, null, 0);
+    setFollow(true);
+  }
+  map.on('contextmenu', e => setManual(e.latlng.lat, e.latlng.lng));
+
+  el('btnSetPos').addEventListener('click', () => {
+    const v = el('manualPos').value.trim();
+    // "54.3155, 13.0935" oder "54,3155 13,0935" oder "54,3155; 13,0935"
+    const m = v.match(/^(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)$/) || v.match(/^(-?\d+(?:[.,]\d+)?)\s*[;\s]\s*(-?\d+(?:[.,]\d+)?)$/);
+    if (!m) { alert('Bitte als Dezimalgrad eingeben, z. B. 54.3155, 13.0935'); return; }
+    const lat = parseFloat(m[1].replace(',', '.')), lon = parseFloat(m[2].replace(',', '.'));
+    if (Math.abs(lat) > 90 || Math.abs(lon) > 180) { alert('Diese Koordinaten liegen außerhalb der Erde.'); return; }
+    setManual(lat, lon); openSheet(false);
+  });
+
+  el('btnUseGps').addEventListener('click', () => {
+    stopSim(); source = 'gps'; lastFix = null; lastCogPoint = null; cog = null;
+    setStatus('Warte auf GPS …', false); openSheet(false);
+  });
+
+  el('btnSim').addEventListener('click', () => {
+    if (simTimer) { stopSim(); source = 'manual'; setStatus('Testfahrt angehalten', false); return; }
+    const crs = ((parseFloat(el('simCourse').value) || 0) % 360 + 360) % 360;
+    const kn = Math.max(0, Math.min(40, parseFloat(String(el('simSpeed').value).replace(',', '.')) || 5));
+    let pos = lastFix ? lastFix.ll : map.getCenter();
+    source = 'sim'; lastFix = null; lastCogPoint = null;
+    el('btnSim').textContent = 'Testfahrt anhalten';
+    const ms = kn / KN, r = Math.PI / 180;
+    let h = crs;
+    simTimer = setInterval(() => {
+      h = (h + (Math.random() - .5) * 2 + 360) % 360; // leichtes Gieren
+      const dLat = ms * Math.cos(h * r) / 111320;
+      const dLon = ms * Math.sin(h * r) / (111320 * Math.cos(pos.lat * r));
+      pos = L.latLng(pos.lat + dLat, pos.lng + dLon);
+      fakeFix(pos.lat, pos.lng, ms, h, 5);
+    }, 1000);
+    openSheet(false); setFollow(true);
+  });
 
   // ---------- Folgen ----------
   const btnFollow = el('btnFollow');
