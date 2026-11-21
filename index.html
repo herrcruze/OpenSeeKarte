@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Seekarte</title>
+<meta name="theme-color" content="#0E2A47">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="stylesheet" href="leaflet/leaflet.css">
+<style>
+  :root {
+    --panel: #0E2A47;
+    --panel-2: #173D63;
+    --ink-on-panel: #F2F6FA;
+    --muted-on-panel: #9FB6CC;
+    --signal: #F26B1D;
+    --signal-ink: #FFFFFF;
+    --sheet: #FFFFFF;
+    --sheet-ink: #10202F;
+    --sheet-muted: #5A6B7B;
+    --line: #D5DEE6;
+    --map-filter: none;
+    --map-bg: #AAD3DF; --attr-bg: rgba(255,255,255,.8); --attr-ink: #333;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --panel: #000000; --panel-2: #1A0000;
+      --ink-on-panel: #FF4A3D; --muted-on-panel: #A8322A;
+      --signal: #FF4A3D; --signal-ink: #000000;
+      --sheet: #0A0000; --sheet-ink: #FF4A3D; --sheet-muted: #A8322A; --line: #3A0A06;
+      --map-filter: brightness(.5) contrast(1.1) sepia(1) hue-rotate(-50deg) saturate(2.2);
+      --map-bg: #120302; --attr-bg: rgba(0,0,0,.7); --attr-ink: #A8322A;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --panel: #000000; --panel-2: #1A0000;
+    --ink-on-panel: #FF4A3D; --muted-on-panel: #A8322A;
+    --signal: #FF4A3D; --signal-ink: #000000;
+    --sheet: #0A0000; --sheet-ink: #FF4A3D; --sheet-muted: #A8322A; --line: #3A0A06;
+    --map-filter: brightness(.5) contrast(1.1) sepia(1) hue-rotate(-50deg) saturate(2.2);
+    --map-bg: #120302; --attr-bg: rgba(0,0,0,.7); --attr-ink: #A8322A;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--panel);
+    color: var(--ink-on-panel);
+    font-family: "SF Pro Text", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    display: flex; flex-direction: column;
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior: none;
+  }
+  #map { flex: 1; min-height: 0; background: var(--map-bg); }
+  #map .leaflet-tile-pane { filter: var(--map-filter); }
+
+  /* Instrumentenleiste */
+  .instruments {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1.6fr;
+    background: var(--panel);
+    padding: 10px max(12px, env(safe-area-inset-left, 0px)) calc(10px + env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-right, 0px));
+    gap: 4px 14px;
+    font-variant-numeric: tabular-nums;
+  }
+  .gauge { min-width: 0; }
+  .gauge small { display: block; font-size: .78rem; color: var(--muted-on-panel); letter-spacing: .02em; }
+  .gauge b { display: block; font-size: clamp(1.9rem, 8vw, 2.6rem); font-weight: 700; line-height: 1.05; }
+  .gauge b span { font-size: .45em; font-weight: 600; color: var(--muted-on-panel); margin-left: 2px; }
+  .gauge.pos b { font-size: clamp(1rem, 4.2vw, 1.25rem); line-height: 1.3; font-weight: 600; }
+  .status { grid-column: 1 / -1; font-size: .82rem; color: var(--muted-on-panel); }
+  .status.warn { color: var(--signal); }
+
+  /* Knöpfe rechts */
+  .fab-col {
+    position: absolute; z-index: 1000;
+    right: max(10px, env(safe-area-inset-right, 0px));
+    top: calc(10px + env(safe-area-inset-top, 0px));
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .fab {
+    width: 52px; height: 52px; border-radius: 14px; border: 0;
+    background: var(--panel); color: var(--ink-on-panel);
+    display: grid; place-items: center; cursor: pointer;
+    box-shadow: 0 2px 6px rgba(0,0,0,.35);
+  }
+  .fab svg { width: 26px; height: 26px; }
+  .fab[aria-pressed="true"] { background: var(--signal); color: var(--signal-ink); }
+  .fab:focus-visible, button:focus-visible, input:focus-visible { outline: 3px solid var(--signal); outline-offset: 2px; }
+
+  .leaflet-top.leaflet-left { top: env(safe-area-inset-top, 0px); left: env(safe-area-inset-left, 0px); }
+  .leaflet-bar a { width: 44px !important; height: 44px !important; line-height: 44px !important; font-size: 24px !important;
+    background: var(--panel) !important; color: var(--ink-on-panel) !important; border-color: var(--panel-2) !important; }
+  .leaflet-bar { border: 0 !important; box-shadow: 0 2px 6px rgba(0,0,0,.35) !important; border-radius: 12px !important; overflow: hidden; }
+  .leaflet-control-attribution { font-size: 10px; }
+  .leaflet-control-attribution, .leaflet-control-scale-line { background: var(--attr-bg) !important; color: var(--attr-ink) !important; }
+  .leaflet-control-attribution a { color: inherit !important; text-decoration: underline; }
+
+  /* Bootssymbol */
+  .boat { width: 40px; height: 40px; }
+  .boat svg { width: 40px; height: 40px; transition: transform .4s ease; filter: drop-shadow(0 1px 2px rgba(0,0,0,.5)); }
+  .boat.stale svg { opacity: .45; }
+
+  /* Einstellungen */
+  .sheet-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 2000; display: none; }
+  .sheet-backdrop.open { display: block; }
+  .sheet {
+    position: fixed; z-index: 2001; left: 0; right: 0; bottom: 0;
+    max-height: 85%; overflow-y: auto;
+    background: var(--sheet); color: var(--sheet-ink);
+    border-radius: 18px 18px 0 0;
+    padding: 18px max(18px, env(safe-area-inset-left, 0px)) calc(22px + env(safe-area-inset-bottom, 0px));
+    transform: translateY(105%); transition: transform .25s ease;
+    max-width: 640px; margin: 0 auto;
+  }
+  .sheet.open { transform: none; }
+  @media (prefers-reduced-motion: reduce) { .sheet, .boat svg { transition: none; } }
+  .sheet h2 { margin: 0 0 4px; font-size: 1.25rem; }
+  .sheet h3 { margin: 22px 0 6px; font-size: 1rem; }
+  .sheet p { margin: 4px 0 10px; color: var(--sheet-muted); font-size: .9rem; line-height: 1.45; }
+  .sheet label { display: block; font-size: .85rem; margin: 10px 0 4px; color: var(--sheet-muted); }
+  .sheet input[type=text], .sheet input[type=url] {
+    width: 100%; padding: 10px 12px; font: inherit; font-size: .85rem;
+    border: 1px solid var(--line); border-radius: 10px; background: transparent; color: var(--sheet-ink);
+  }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+  .btn {
+    font: inherit; font-size: .95rem; font-weight: 600; padding: 11px 16px; border-radius: 10px; cursor: pointer;
+    border: 1px solid var(--line); background: transparent; color: var(--sheet-ink);
+  }
+  .btn.primary { background: var(--signal); color: var(--signal-ink); border-color: var(--signal); }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .seg button { font: inherit; font-size: .9rem; padding: 9px 14px; border: 0; background: transparent; color: var(--sheet-ink); cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: var(--signal); color: var(--signal-ink); font-weight: 600; }
+  .close { position: absolute; right: 14px; top: 12px; }
+</style>
+</head>
+<body>
+  <div id="map" role="application" aria-label="Seekarte"></div>
+
+  <div class="fab-col">
+    <button class="fab" id="btnFollow" aria-pressed="true" aria-label="Karte folgt dem Boot" title="Karte folgt dem Boot">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.2" fill="currentColor"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4"/></svg>
+    </button>
+    <button class="fab" id="btnTrack" aria-pressed="false" aria-label="Track aufzeichnen" title="Track aufzeichnen">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 19c3-1 3-6 7-6s3-6 9-8"/><circle cx="20" cy="5" r="2" fill="currentColor"/></svg>
+    </button>
+    <button class="fab" id="btnNight" aria-pressed="false" aria-label="Nachtmodus" title="Nachtmodus">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg>
+    </button>
+    <button class="fab" id="btnSettings" aria-label="Einstellungen" title="Einstellungen">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
+    </button>
+  </div>
+
+  <div class="instruments">
+    <div class="gauge"><small>Fahrt (SOG)</small><b id="sog">–<span>kn</span></b></div>
+    <div class="gauge"><small>Kurs (COG)</small><b id="cog">–<span>°</span></b></div>
+    <div class="gauge pos"><small>Position</small><b id="pos">–<br>–</b></div>
+    <div class="status" id="status">GPS wird gestartet …</div>
+  </div>
+
+  <div class="sheet-backdrop" id="backdrop"></div>
+  <section class="sheet" id="sheet" aria-label="Einstellungen" aria-hidden="true">
+    <button class="btn close" id="btnClose">Schließen</button>
+    <h2>Einstellungen</h2>
+
+    <h3>Darstellung</h3>
+    <div class="seg" role="group" aria-label="Farbschema">
+      <button data-theme-set="auto">Automatisch</button>
+      <button data-theme-set="light">Tag</button>
+      <button data-theme-set="dark">Nacht</button>
+    </div>
+
+    <h3>Track</h3>
+    <p id="trackInfo">Kein Track aufgezeichnet.</p>
+    <div class="row">
+      <button class="btn primary" id="btnGpx">Als GPX speichern</button>
+      <button class="btn" id="btnClearTrack">Track löschen</button>
+    </div>
+
+    <h3>Karten</h3>
+    <p>Hier tauschst du die Karte aus. Erwartet wird eine Kachel-Adresse mit {z}, {x} und {y}. Leer lassen schaltet die Ebene ab.</p>
+    <label for="baseUrl">Grundkarte</label>
+    <input type="url" id="baseUrl" spellcheck="false" autocomplete="off">
+    <label for="overlayUrl">Seezeichen-Ebene</label>
+    <input type="url" id="overlayUrl" spellcheck="false" autocomplete="off">
+    <div class="row">
+      <button class="btn primary" id="btnSaveMaps">Karten übernehmen</button>
+      <button class="btn" id="btnResetMaps">Standard wiederherstellen</button>
+    </div>
+
+    <h3>Offline-Speicher</h3>
+    <p id="cacheInfo">Jede Kachel, die du dir einmal angesehen hast, bleibt gespeichert und ist auf dem Wasser ohne Netz verfügbar. Sieh dir vor dem Törn dein Revier in den Zoomstufen an, die du brauchst.</p>
+    <div class="row">
+      <button class="btn" id="btnClearCache">Kartenspeicher leeren</button>
+    </div>
+    <p style="margin-top:22px">Keine amtliche Seekarte. Tiefenangaben und Seezeichen stammen aus freiwillig gesammelten Daten und können fehlen oder veraltet sein.</p>
+  </section>
+
+<script src="leaflet/leaflet.js"></script>
+<script>
+(() => {
+  'use strict';
+
+  // ---------- Speicher ----------
+  const store = {
+    get(k, fallback) { try { const v = localStorage.getItem('seekarte.' + k); return v === null ? fallback : JSON.parse(v); } catch { return fallback; } },
+    set(k, v) { try { localStorage.setItem('seekarte.' + k, JSON.stringify(v)); } catch {} }
+  };
+
+  const DEFAULT_MAPS = {
+    base: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    overlay: 'https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png'
+  };
+  let maps = Object.assign({}, DEFAULT_MAPS, store.get('maps', {}));
+
+  // ---------- Farbschema ----------
+  const root = document.documentElement;
+  function applyTheme(t) {
+    if (t === 'auto') root.removeAttribute('data-theme'); else root.setAttribute('data-theme', t);
+    store.set('theme', t);
+    const night = t === 'dark' || (t === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
+    document.getElementById('btnNight').setAttribute('aria-pressed', String(night));
+    document.querySelectorAll('[data-theme-set]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.themeSet === t)));
+    document.querySelector('meta[name=theme-color]').content = night ? '#000000' : '#0E2A47';
+  }
+  applyTheme(store.get('theme', 'auto'));
+
+  // ---------- Karte ----------
+  const last = store.get('view', { lat: 54.315, lon: 13.09, z: 12 });
+  const map = L.map('map', { zoomControl: true, attributionControl: true, worldCopyJump: true })
+    .setView([last.lat, last.lon], last.z);
+  L.control.scale({ imperial: false, position: 'bottomleft' }).addTo(map);
+
+  let baseLayer = null, overlayLayer = null;
+  function buildLayers() {
+    if (baseLayer) map.removeLayer(baseLayer);
+    if (overlayLayer) map.removeLayer(overlayLayer);
+    baseLayer = overlayLayer = null;
+    if (maps.base) {
+      baseLayer = L.tileLayer(maps.base, {
+        maxZoom: 19, maxNativeZoom: 19,
+        attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>-Mitwirkende'
+      }).addTo(map);
+    }
+    if (maps.overlay) {
+      overlayLayer = L.tileLayer(maps.overlay, {
+        maxZoom: 19, maxNativeZoom: 18,
+        attribution: 'Seezeichen © <a href="https://www.openseamap.org">OpenSeaMap</a>'
+      }).addTo(map);
+    }
+  }
+  buildLayers();
+  map.on('moveend', () => { const c = map.getCenter(); store.set('view', { lat: c.lat, lon: c.lng, z: map.getZoom() }); });
+
+  // ---------- Boot ----------
+  const boatIcon = L.divIcon({
+    className: 'boat', iconSize: [40, 40], iconAnchor: [20, 20],
+    html: '<svg viewBox="0 0 40 40"><path d="M20 3 L32 35 L20 28 L8 35 Z" style="fill:var(--signal)" stroke="#fff" stroke-width="2" stroke-linejoin="round"/></svg>'
+  });
+  let boat = null, accCircle = null, cogLine = null;
+
+  // ---------- Anzeige ----------
+  const el = id => document.getElementById(id);
+  const statusEl = el('status');
+  function setStatus(text, warn) { statusEl.textContent = text; statusEl.classList.toggle('warn', !!warn); }
+
+  function ddm(v, pos, neg) {
+    const h = v >= 0 ? pos : neg; v = Math.abs(v);
+    const d = Math.floor(v); const m = (v - d) * 60;
+    return `${d}° ${m.toFixed(3).padStart(6, '0')}′ ${h}`;
+  }
+  function bearing(a, b) {
+    const r = Math.PI / 180, φ1 = a.lat * r, φ2 = b.lat * r, Δλ = (b.lng - a.lng) * r;
+    const y = Math.sin(Δλ) * Math.cos(φ2);
+    const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+    return (Math.atan2(y, x) / r + 360) % 360;
+  }
+
+  // ---------- GPS ----------
+  let follow = true, lastFix = null, lastCogPoint = null, cog = null, staleTimer = null;
+  const KN = 1.943844;
+
+  function onPosition(p) {
+    const { latitude: lat, longitude: lon, accuracy, speed, heading } = p.coords;
+    const ll = L.latLng(lat, lon);
+    const now = p.timestamp || Date.now();
+
+    // Fahrt: GPS-Wert, sonst aus zwei Fixes berechnet
+    let sogKn = null;
+    if (speed != null && !isNaN(speed)) sogKn = speed * KN;
+    else if (lastFix) {
+      const dt = (now - lastFix.t) / 1000;
+      if (dt > 0.5) sogKn = map.distance(lastFix.ll, ll) / dt * KN;
+    }
+
+    // Kurs: GPS-Wert, sonst aus Bewegung (erst ab 8 m, sonst springt er im Hafen)
+    if (!lastCogPoint) lastCogPoint = ll;
+    const moved = map.distance(lastCogPoint, ll) > 8;
+    if (heading != null && !isNaN(heading) && sogKn != null && sogKn > 0.5) cog = heading;
+    else if (moved) cog = bearing(lastCogPoint, ll);
+    if (moved) lastCogPoint = ll;
+
+    lastFix = { ll, t: now };
+
+    el('sog').innerHTML = (sogKn == null ? '–' : sogKn.toFixed(1)) + '<span>kn</span>';
+    el('cog').innerHTML = (cog == null || (sogKn != null && sogKn < 0.3) ? '–' : String(Math.round(cog) % 360).padStart(3, '0')) + '<span>°</span>';
+    el('pos').innerHTML = ddm(lat, 'N', 'S') + '<br>' + ddm(lon, 'E', 'W');
+    setStatus(`GPS ok · Genauigkeit ±${Math.round(accuracy)} m · ${new Date(now).toLocaleTimeString('de-DE')}`, accuracy > 50);
+
+    if (!boat) {
+      accCircle = L.circle(ll, { radius: accuracy, weight: 1, color: '#F26B1D', fillOpacity: .08, interactive: false }).addTo(map);
+      cogLine = L.polyline([ll, ll], { color: '#F26B1D', weight: 2, dashArray: '6 6', interactive: false }).addTo(map);
+      boat = L.marker(ll, { icon: boatIcon, interactive: false, keyboard: false, zIndexOffset: 1000 }).addTo(map);
+      if (follow) map.setView(ll, Math.max(map.getZoom(), 14));
+    } else {
+      boat.setLatLng(ll); accCircle.setLatLng(ll).setRadius(accuracy);
+    }
+    const svg = boat.getElement() && boat.getElement().querySelector('svg');
+    if (svg) svg.style.transform = `rotate(${cog || 0}deg)`;
+    boat.getElement() && boat.getElement().classList.remove('stale');
+
+    // Kurslinie: 5 Minuten voraus
+    if (cog != null && sogKn != null && sogKn > 0.5) {
+      const dist = sogKn / KN * 300, r = Math.PI / 180;
+      const dLat = dist * Math.cos(cog * r) / 111320;
+      const dLon = dist * Math.sin(cog * r) / (111320 * Math.cos(lat * r));
+      cogLine.setLatLngs([ll, [lat + dLat, lon + dLon]]);
+    } else cogLine.setLatLngs([ll, ll]);
+
+    if (follow) map.panTo(ll, { animate: true });
+    if (recording) addTrackPoint(lat, lon, now);
+
+    clearTimeout(staleTimer);
+    staleTimer = setTimeout(() => {
+      setStatus('Kein GPS-Signal seit über 30 Sekunden', true);
+      boat && boat.getElement() && boat.getElement().classList.add('stale');
+    }, 30000);
+  }
+
+  function onError(e) {
+    const msg = {
+      1: 'Standortzugriff verweigert. In den Browser-Einstellungen für diese Seite erlauben.',
+      2: 'Position nicht verfügbar. Freie Sicht zum Himmel hilft.',
+      3: 'GPS antwortet nicht, versuche es weiter …'
+    }[e.code] || 'GPS-Fehler: ' + e.message;
+    setStatus(msg, true);
+  }
+
+  if (!('geolocation' in navigator)) setStatus('Dieser Browser kann kein GPS nutzen.', true);
+  else if (!isSecureContext) setStatus('GPS braucht eine https-Adresse. Siehe Anleitung.', true);
+  else navigator.geolocation.watchPosition(onPosition, onError, { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 });
+
+  // ---------- Folgen ----------
+  const btnFollow = el('btnFollow');
+  function setFollow(on) {
+    follow = on; btnFollow.setAttribute('aria-pressed', String(on));
+    if (on && lastFix) map.panTo(lastFix.ll);
+  }
+  map.on('dragstart', () => setFollow(false));
+  btnFollow.addEventListener('click', () => setFollow(!follow));
+
+  // ---------- Track ----------
+  let recording = store.get('recording', false);
+  let track = store.get('track', []);
+  const trackLine = L.polyline(track.map(p => [p.lat, p.lon]), { color: '#C2185B', weight: 3, opacity: .85, interactive: false }).addTo(map);
+  const btnTrack = el('btnTrack');
+  let lastSaved = 0;
+
+  function trackLengthNm() {
+    let m = 0;
+    for (let i = 1; i < track.length; i++) m += map.distance([track[i-1].lat, track[i-1].lon], [track[i].lat, track[i].lon]);
+    return m / 1852;
+  }
+  function updateTrackInfo() {
+    el('trackInfo').textContent = track.length
+      ? `${track.length} Punkte, ${trackLengthNm().toFixed(2)} sm${recording ? ', Aufzeichnung läuft' : ''}.`
+      : (recording ? 'Aufzeichnung läuft, noch keine Punkte.' : 'Kein Track aufgezeichnet.');
+  }
+  function addTrackPoint(lat, lon, t) {
+    const prev = track[track.length - 1];
+    if (prev && map.distance([prev.lat, prev.lon], [lat, lon]) < 10) return; // alle 10 m ein Punkt
+    track.push({ lat: +lat.toFixed(6), lon: +lon.toFixed(6), t });
+    trackLine.addLatLng([lat, lon]);
+    if (Date.now() - lastSaved > 15000) { store.set('track', track); lastSaved = Date.now(); }
+  }
+  function setRecording(on) {
+    recording = on; store.set('recording', on); store.set('track', track);
+    btnTrack.setAttribute('aria-pressed', String(on));
+    btnTrack.title = on ? 'Aufzeichnung stoppen' : 'Track aufzeichnen';
+    updateTrackInfo();
+  }
+  setRecording(recording);
+  btnTrack.addEventListener('click', () => setRecording(!recording));
+
+  el('btnGpx').addEventListener('click', () => {
+    if (!track.length) { el('trackInfo').textContent = 'Noch nichts zum Speichern. Starte zuerst eine Aufzeichnung.'; return; }
+    const pts = track.map(p => `<trkpt lat="${p.lat}" lon="${p.lon}"><time>${new Date(p.t).toISOString()}</time></trkpt>`).join('\n      ');
+    const gpx = `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="Seekarte" xmlns="http://www.topografix.com/GPX/1/1">
+  <trk><name>Törn ${new Date(track[0].t).toLocaleDateString('de-DE')}</name>
+    <trkseg>
+      ${pts}
+    </trkseg>
+  </trk>
+</gpx>`;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([gpx], { type: 'application/gpx+xml' }));
+    a.download = `toern-${new Date(track[0].t).toISOString().slice(0, 10)}.gpx`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  });
+  el('btnClearTrack').addEventListener('click', () => {
+    if (!track.length || !confirm('Den aufgezeichneten Track löschen?')) return;
+    track = []; trackLine.setLatLngs([]); store.set('track', track); updateTrackInfo();
+  });
+  window.addEventListener('pagehide', () => store.set('track', track));
+
+  // ---------- Display wachhalten ----------
+  let wakeLock = null;
+  async function keepAwake() {
+    try { if ('wakeLock' in navigator && document.visibilityState === 'visible') wakeLock = await navigator.wakeLock.request('screen'); } catch {}
+  }
+  keepAwake();
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') keepAwake(); });
+
+  // ---------- Einstellungen ----------
+  const sheet = el('sheet'), backdrop = el('backdrop');
+  function openSheet(open) {
+    sheet.classList.toggle('open', open); backdrop.classList.toggle('open', open);
+    sheet.setAttribute('aria-hidden', String(!open));
+    if (open) { el('baseUrl').value = maps.base; el('overlayUrl').value = maps.overlay; updateTrackInfo(); updateCacheInfo(); }
+  }
+  el('btnSettings').addEventListener('click', () => openSheet(true));
+  el('btnClose').addEventListener('click', () => openSheet(false));
+  backdrop.addEventListener('click', () => openSheet(false));
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') openSheet(false); });
+
+  document.querySelectorAll('[data-theme-set]').forEach(b => b.addEventListener('click', () => applyTheme(b.dataset.themeSet)));
+  el('btnNight').addEventListener('click', () => {
+    const night = el('btnNight').getAttribute('aria-pressed') === 'true';
+    applyTheme(night ? 'light' : 'dark');
+  });
+
+  function validTileUrl(u) { return u === '' || (/^https?:\/\//.test(u) && u.includes('{z}') && u.includes('{x}') && u.includes('{y}')); }
+  el('btnSaveMaps').addEventListener('click', () => {
+    const b = el('baseUrl').value.trim(), o = el('overlayUrl').value.trim();
+    if (!validTileUrl(b) || !validTileUrl(o)) { alert('Die Adresse muss mit http(s):// beginnen und {z}, {x} und {y} enthalten.'); return; }
+    maps = { base: b, overlay: o }; store.set('maps', maps); buildLayers(); openSheet(false);
+  });
+  el('btnResetMaps').addEventListener('click', () => {
+    maps = Object.assign({}, DEFAULT_MAPS); store.set('maps', maps);
+    el('baseUrl').value = maps.base; el('overlayUrl').value = maps.overlay; buildLayers();
+  });
+
+  // ---------- Offline ----------
+  async function updateCacheInfo() {
+    if (!('caches' in window)) return;
+    try {
+      const c = await caches.open('seekarte-tiles');
+      const n = (await c.keys()).length;
+      let txt = `${n} Kartenkacheln gespeichert. Jede Kachel, die du dir einmal angesehen hast, ist auf dem Wasser ohne Netz verfügbar. Sieh dir vor dem Törn dein Revier in den Zoomstufen an, die du brauchst.`;
+      if (navigator.storage && navigator.storage.estimate) {
+        const e = await navigator.storage.estimate();
+        txt += ` Belegt: ${(e.usage / 1048576).toFixed(0)} MB.`;
+      }
+      el('cacheInfo').textContent = txt;
+    } catch {}
+  }
+  el('btnClearCache').addEventListener('click', async () => {
+    if (!confirm('Alle gespeicherten Kartenkacheln löschen? Danach brauchst du Netz, um sie neu zu laden.')) return;
+    try { await caches.delete('seekarte-tiles'); } catch {}
+    buildLayers(); updateCacheInfo();
+  });
+
+  if ('serviceWorker' in navigator && isSecureContext) {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+    if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+  }
+})();
+</script>
+</body>
+</html>
